@@ -269,7 +269,7 @@ class Generator(nn.Module):
         self.proj = nn.Linear(d_model, vocab)
 
     def forward(self, x):
-        return F.softmax(self.proj(x), dim=-1)
+        return F.gumbel_softmax(self.proj(x), dim=-1)
     
 def make_classification_model(src_vocab, tgt_vocab, RN=None, N=6, 
                d_model=512, d_ff=2048, h=8, dropout=0.1, N2=0):
