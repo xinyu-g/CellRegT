@@ -8,7 +8,7 @@ import numpy as np
 from utils import split_df, onehot
 from Dataset import MyDataset
 from torch.utils.data import DataLoader
-from LMM import LinearMixedModel, train_linear_mixed_model
+from LinearRegression import LinearRegressionModel, train_linear_model
 
 
 
@@ -74,20 +74,20 @@ if __name__ == "__main__":
     json.dump(word2idx, cluster_map)
     cluster_map.close()
 
-    mps_device = torch.device("mps")
+    # mps_device = torch.device("mps")
 
     train, valid = split_df(0.9, data)
-    train_dataset = MyDataset(train, 'mps', word2idx)
-    valid_dataset = MyDataset(valid, 'mps', word2idx)
+    train_dataset = MyDataset(train, word2idx)
+    valid_dataset = MyDataset(valid, word2idx)
 
 
     Z = torch.randint(2, (batch_size, k * len(genes)), dtype=torch.float32)
     Z[:, 0] = 1
 
-    mps_device = torch.device("mps")
+    # mps_device = torch.device("mps")
 
-    model = LinearMixedModel(len(genes), len(genes)*k)
-    model.to(mps_device)
+    model = LinearRegressionModel(len(genes), len(genes)*k, k)
+    # model.to(mps_device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.00001)
 
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_dataset, BATCH_SIZE,drop_last=True, shuffle=True)
     valid_loader = DataLoader(valid_dataset, BATCH_SIZE,drop_last=True, shuffle=False)
 
-    train_loss, valid_loss = train_linear_mixed_model(train_loader, valid_dataset, model, Z, lr=lr)
+    train_loss, valid_loss = train_linear_model(train_loader, valid_dataset, model, lr=lr)
 
     coefficients = model.state_dict()['fixed_effects.weight'].numpy()
     features = genes

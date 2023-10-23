@@ -356,7 +356,7 @@ def run_epoch(data_iter, model, loss_compute, lr=0.000001, RN=None):
     return total_loss, y_pred_prob, y_true_prob
 
 
-def run_model(model,RN,n_epoch,criterion,model_opt,train_loader,valid_loader,lr=0.000001,rn=True):
+def  run_model(model,RN,n_epoch,criterion,model_opt,train_loader,valid_loader,lr=0.000001,rn=True):
     
     train_loss = []
     valid_loss = []
