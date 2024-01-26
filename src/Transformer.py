@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import math, copy
 import numpy as np
 from torch.autograd import Variable
+from torch.utils.data import DataLoader, Dataset, random_split
 
 
 
@@ -330,7 +331,7 @@ class LossCompute:
             self.opt.step()
             self.opt.optimizer.zero_grad()
         return loss.data, x
-    
+
 
 def run_epoch(data_iter, model, loss_compute, lr=0.000001, RN=None):
     "Standard Training and Logging Function"
@@ -341,14 +342,14 @@ def run_epoch(data_iter, model, loss_compute, lr=0.000001, RN=None):
     y_true_prob = []
     for i, (src, tgt) in enumerate(data_iter):
 
-        out = model.forward(src, tgt, None, None) #
+        out =  model.forward(src, tgt, None, None) #
 
         loss, y = loss_compute(out, tgt)
         y = F.softmax(y, dim=-1)
         y_p = torch.argmax(y, dim=1)
         y_pred.append(y_p)
         y_pred_prob.append(y)
-        trg_y = torch.argmax(tgt, dim=1)
+        trg_y = tgt
         y_true.append(trg_y)
         y_true_prob.append(tgt)
         total_loss += loss
@@ -356,11 +357,13 @@ def run_epoch(data_iter, model, loss_compute, lr=0.000001, RN=None):
     return total_loss, y_pred_prob, y_true_prob
 
 
-def  run_model(model,RN,n_epoch,criterion,model_opt,train_loader,valid_loader,lr=0.000001,rn=True):
-    
-    train_loss = []
-    valid_loss = []
-    
+def run_model(model,RN,n_epoch,batch_size,train_dataset,valid_dataset, lr=0.000001, rn=True):
+    criterion = nn.CrossEntropyLoss()
+    model_opt = NoamOpt(model.tgt_embed[0].d_model, 1, 2000,
+                torch.optim.Adam(model.parameters(), lr=lr, betas=(0.9, 0.98), eps=1e-9))
+    BATCH_SIZE = batch_size
+    train_loader = DataLoader(train_dataset, BATCH_SIZE, drop_last=True, shuffle=True)
+    valid_loader = DataLoader(valid_dataset, BATCH_SIZE, drop_last=True, shuffle=False)
     for epoch in range(n_epoch):
         model.train()
         #  rebatch(pad_idx, b) for b in train_iter)
@@ -368,20 +371,14 @@ def  run_model(model,RN,n_epoch,criterion,model_opt,train_loader,valid_loader,lr
                     model, 
                     LossCompute(model.generator, criterion, 
                                         opt=model_opt), lr, RN)
-        
-        if epoch % 10 == 0:
-            train_loss.append(loss)
-            print(f"Epoch {epoch}, Train average Loss: {loss}" )
-            
         model.eval()
 
-        loss, y_pred_eval, y_true_eval  = run_epoch(valid_loader, 
+        loss, y_pred_eval, y_true_eval  = run_epoch( valid_loader, 
                             model, 
                             LossCompute(model.generator, criterion, 
                             opt=None), lr, RN)
         
         if epoch % 10 == 0:
-            valid_loss.append(loss)
             print(f"Epoch {epoch}, Valid average Loss: {loss}" )
         
-    return train_loss, valid_loss
+    return y_pred_eval, y_true_eval

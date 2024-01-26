@@ -22,6 +22,8 @@ if __name__ == "__main__":
     parser.add_argument('-l', help='learning rate', type=float, default=0.01)
     parser.add_argument('-k', help='top k genes', type=float, default=100)
     parser.add_argument('-N', help='# of layers with RN', type=int, default=1)
+    parser.add_argument('-c', help='colname of clusters', type=str, default='clusters')
+    parser.add_argument('-d', help='device', type=str, default='cpu')
 
 
     args = parser.parse_args()
@@ -34,6 +36,8 @@ if __name__ == "__main__":
     lr = args.l
     n = args.k
     N = args.N
+    colname = args.c
+    device = torch.device(args.d)
 
     data = pd.read_csv(input, index_col=[0])
     regulatory_data = pd.read_csv(rn, index_col=[0])
@@ -75,17 +79,19 @@ if __name__ == "__main__":
     # number of clusters
     k = 10
 
-    seq_data = data[genes + [f'K = {str(k)}']]
-    phenotypes = list(set(seq_data[f'K = {str(k)}'].to_list()))
+    seq_data = data[genes + [colname]]
+    phenotypes = data[colname].unique()
 
     vocab = []
     for gene in genes:
         vocab.extend(pd.unique(seq_data[gene]))
     vocab = list(set(vocab))
 
+    idx = 0
     word2idx = {}
     for p in phenotypes:
-        word2idx[p] = onehot(p-1, k)
+        word2idx[p] = idx
+        idx += 1
 
     train, valid = split_df(0.9, seq_data)
     train_dataset = MyDataset(train, word2idx)
@@ -93,32 +99,14 @@ if __name__ == "__main__":
 
     
     BATCH_SIZE = batch_size
-    train_loader = DataLoader(train_dataset, BATCH_SIZE, drop_last=True, shuffle=True)
-    valid_loader = DataLoader(valid_dataset, BATCH_SIZE, drop_last=True, shuffle=False)
 
     model = make_classification_model(len(vocab), len(phenotypes), RN, d_model=n, h=dh, N2=N)
-    criterion = nn.CrossEntropyLoss()
-    model_opt = NoamOpt(model.tgt_embed[0].d_model, 1, 2000,
-                torch.optim.Adam(model.parameters(), lr=lr, betas=(0.9, 0.98), eps=1e-9))
+    model.to(device)
 
     is_rn = True 
 
     if not N:
         is_rn = False
-    y_pred, y_true = run_model(model,RN,n_epochs,criterion, model_opt,train_loader,valid_loader,lr, is_rn)
+    y_pred, y_true = run_model(model,RN,n_epochs,BATCH_SIZE,train_dataset,valid_dataset,lr, is_rn)
 
-    torch.save(model.state_dict(), output)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    torch.save(model, output)
