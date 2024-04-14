@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
     train_loss, valid_loss = train_linear_model(train_loader, valid_dataset, model, lr=lr)
 
-    coefficients = model.state_dict()['fixed_effects.weight'].numpy()
+    coefficients = model.state_dict()['linear.weight'].numpy()
     features = genes
     coefficients_df = pd.DataFrame({'Feature': features, 'Coefficient': np.abs(coefficients[0])})
     coefficients_df['Coefficient_Abs'] = np.abs(coefficients_df['Coefficient'])

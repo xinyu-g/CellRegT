@@ -1,22 +1,23 @@
 import torch.nn as nn
 import torch.optim as optim
-
+import torch
 
 class LinearRegressionModel(nn.Module):
-
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, output_dim):
         super(LinearRegressionModel, self).__init__()
-        self.output = nn.Linear(input_dim, output_dim)
+        self.linear = nn.Linear(input_dim, output_dim)
 
-    def forward(self, x):
-        x = self.output(x)
-        return x
+    def forward(self, X):
+        return self.linear(X)
     
 
 def train_linear_model(train_data, valid_data, model, batch_size=32, num_epochs=500, lr=0.01):
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    loss_func = nn.CrossEntropyLoss()
+    # Loss function
+    criterion = nn.MSELoss()
+
+    # Optimizer
+    optimizer = optim.SGD(model.parameters(), lr=0.01)
     train_num_batches = 0
     valid_num_batches = 0
     train_loss = []
@@ -37,7 +38,7 @@ def train_linear_model(train_data, valid_data, model, batch_size=32, num_epochs=
             y_pred = model(batch_fixed_inputs)
 
             # Compute loss
-            loss = loss_func(y_pred, batch_y_true)
+            loss = criterion(y_pred, batch_y_true)
             train_total_loss += loss.item()
 
             # Backward pass and optimization
@@ -65,7 +66,7 @@ def train_linear_model(train_data, valid_data, model, batch_size=32, num_epochs=
             y_pred = model(batch_fixed_inputs)
 
             # Compute loss
-            loss = loss_func(y_pred, batch_y_true)
+            loss = criterion(y_pred, batch_y_true)
             valid_total_loss += loss.item()
 
             # Backward pass and optimization
