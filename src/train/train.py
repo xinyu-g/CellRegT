@@ -24,6 +24,7 @@ if __name__ == "__main__":
     parser.add_argument('-N', help='# of layers with RN', type=int, default=1)
     parser.add_argument('-c', help='colname of clusters', type=str, default='clusters')
     parser.add_argument('-d', help='device', type=str, default='cpu')
+    parser.add_argument('-a', help='device', type=str, default='cpu')
 
 
     args = parser.parse_args()
@@ -37,7 +38,9 @@ if __name__ == "__main__":
     n = args.k
     N = args.N
     colname = args.c
+    lambda_ = args.a
     device = torch.device(args.d)
+    
 
     data = pd.read_csv(input, index_col=[0])
     regulatory_data = pd.read_csv(rn, index_col=[0])
@@ -100,7 +103,7 @@ if __name__ == "__main__":
     
     BATCH_SIZE = batch_size
 
-    model = make_classification_model(len(vocab), len(phenotypes), RN, d_model=n, h=dh, N2=N)
+    model = make_classification_model(len(vocab), len(phenotypes), RN, d_model=n, h=dh, N2=N, lambda_=lambda_)
     model.to(device)
 
     is_rn = True 

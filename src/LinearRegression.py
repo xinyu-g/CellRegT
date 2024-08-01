@@ -11,13 +11,13 @@ class LinearRegressionModel(nn.Module):
         return self.linear(X)
     
 
-def train_linear_model(train_data, valid_data, model, batch_size=32, num_epochs=500, lr=0.01):
+def train_linear_model(train_data, valid_data, model, num_epochs=500, lr=0.01):
 
     # Loss function
-    criterion = nn.MSELoss()
+    criterion = nn.CrossEntropyLoss()
 
     # Optimizer
-    optimizer = optim.SGD(model.parameters(), lr=0.01)
+    optimizer = optim.SGD(model.parameters(), lr=lr)
     train_num_batches = 0
     valid_num_batches = 0
     train_loss = []
@@ -33,12 +33,20 @@ def train_linear_model(train_data, valid_data, model, batch_size=32, num_epochs=
             batch_fixed_inputs = src
             batch_y_true = tgt
 
+            # print(src.shape, tgt.shape)
+
             # Forward pass
             optimizer.zero_grad()
             y_pred = model(batch_fixed_inputs)
+            # print(tgt)
+
+            batch_y_true = torch.argmax(batch_y_true.float(), dim=1)
+
+            # target = torch.argmax(tgt.float(), dim=1)
 
             # Compute loss
             loss = criterion(y_pred, batch_y_true)
+            # print(loss.item())
             train_total_loss += loss.item()
 
             # Backward pass and optimization
@@ -46,24 +54,26 @@ def train_linear_model(train_data, valid_data, model, batch_size=32, num_epochs=
             optimizer.step()
             train_num_batches += 1
 
-        if epoch % 50 == 0:
+        if epoch % 50 == 1:
             avg_loss = train_total_loss / train_num_batches
             train_loss.append(avg_loss)
             print(f"Epoch {epoch}, Train average Loss: {avg_loss}" )
-
-
 
         model.eval()
         valid_total_loss = 0.0
 
         for i, (src, tgt) in enumerate(valid_data):
             # Get the current batch
+            # print('valid')
             batch_fixed_inputs = src
             batch_y_true = tgt
+
+            batch_y_true = torch.argmax(batch_y_true.float(), dim=1)
 
             # Forward pass
             optimizer.zero_grad()
             y_pred = model(batch_fixed_inputs)
+
 
             # Compute loss
             loss = criterion(y_pred, batch_y_true)
@@ -74,11 +84,10 @@ def train_linear_model(train_data, valid_data, model, batch_size=32, num_epochs=
             optimizer.step()
             valid_num_batches += 1
 
-        if epoch % 50 == 0:
+        if epoch % 50 == 1:
             avg_loss = valid_total_loss / valid_num_batches
             valid_loss.append(avg_loss)
             print(f"Epoch {epoch}, Valid average Loss: {avg_loss}" )
-           
 
     print("Training completed.")
     return train_loss, valid_loss

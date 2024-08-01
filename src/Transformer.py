@@ -5,8 +5,7 @@ import math, copy
 import numpy as np
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, Dataset, random_split
-
-
+from utils import *
 
 
 class Embeddings(nn.Module):
@@ -23,12 +22,6 @@ def clones(module, N, rn_module=None, N2=None):
     if N2:
         return nn.ModuleList([copy.deepcopy(rn_module) for _ in range(N2)] + [copy.deepcopy(module) for _ in range(N)])
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
-
-def onehot(idx, length):
-    lst = [0 for i in range(length)]
-    lst[idx] = 1
-    return lst 
 
 
 class LayerNorm(nn.Module):
@@ -64,19 +57,33 @@ class EncoderClass(nn.Module):
     A standard Encoder-Decoder architecture. Base for this and many 
     other models.
     """
-    def __init__(self, encoder, src_embed=None, tgt_embed=None, generator=None):
+    def __init__(self, encoder, src_embed=None, tgt_embed=None, generator=None, lambda_=0.5):
         super(EncoderClass, self).__init__()
         self.encoder = encoder
         self.src_embed = src_embed
         self.tgt_embed = tgt_embed
         self.generator = generator
+        self.previous_rn_weights = None
+        self.lambda_ = lambda_
+
         
     def forward(self, src, tgt, src_mask, tgt_mask):
         "Take in and process masked src and target sequences."
-        return self.encode(src, src_mask)
+        rn_weights = self.encoder.layers[0].RN if self.encoder.layers[0].rn else None
+        output = self.encode(src, src_mask)
+        return output, rn_weights
+    
+    def regularization_loss(self, rn_weights):
+        if self.previous_rn_weights is None:
+            self.previous_rn_weights = rn_weights.detach().clone()
+        # print(1, rn_weights == self.previous_rn_weights)
+        return regularization_term(rn_weights, self.previous_rn_weights, self.lambda_)
     
     def encode(self, src, src_mask):
         return self.encoder(src, src_mask)
+    
+    def update_reference(self, rn_weights):
+        self.previous_rn_weights = rn_weights.detach().clone()
     
 
 
@@ -107,11 +114,16 @@ class EncoderLayer(nn.Module):
         self.rn = rn
         self.RN = None
         if self.rn:
+            # self.RN = nn.Parameter(torch.sigmoid(RN))
+            # self.RN = nn.Parameter(RN)
             self.RN = nn.Parameter(RN)
 
     def forward(self, x, mask=None):
         "Follow Figure 1 (left) for connections."
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, self.RN, mask))
+        RN = torch.tanh(self.RN) if torch.is_tensor(self.RN) else None
+        # RN = torch.sigmoid(self.RN) if torch.is_tensor(self.RN) else None
+        # RN = self.RN if torch.is_tensor(self.RN) else None
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, RN, mask))
         return self.sublayer[1](x, self.feed_forward)
     
 
@@ -186,10 +198,8 @@ def attention_w_regulatoryNet(query, key, value, rn=None, mask=None, dropout=Non
     return torch.matmul(p_attn, value), p_attn
 
 
-
 def shape_rn(t, d_k, h, batch):
     diagonal_tensors = []
-
 
 # Iterate to get the d_k diagonal tensors
     for i in range(h):
@@ -204,8 +214,11 @@ def shape_rn(t, d_k, h, batch):
         diagonal_tensors.append(diagonal_tensor)
     r1 = torch.stack(diagonal_tensors, dim=0)
 
-    r2 = r1.repeat(batch, 1, 1)
 
+    r2 = r1.repeat(batch, 1, 1)
+    if h == 1:
+        return r2
+    # print(r2.shape)
     r2 = r2.view(batch, h, 1, d_k, d_k)
     return r2
 
@@ -227,29 +240,33 @@ class MultiHeadedAttention(nn.Module):
             # Same mask applied to all h heads.
             mask = mask.unsqueeze(1)
         nbatches = query.size(0)
-        # 1) Do all the linear projections in batch from d_model => h x d_k 
-        query, key, value = \
-            [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-             for l, x in zip(self.linears, (query, key, value))]
-        
+
+
+        if self.h == 1:
+            query, key, value = \
+                [l(x).view(nbatches, -1)
+                 for l, x in zip(self.linears, (query, key, value))]
+        else:
+            query, key, value = \
+                [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+                for l, x in zip(self.linears, (query, key, value))] 
         
         # 2) Apply attention on all the projected vectors in batch. 
         if torch.is_tensor(RN):
 
             x, self.attn = attention_w_regulatoryNet(query, key, value, RN, mask=mask, 
                                  dropout=self.dropout)
-
             
         else:
             x, self.attn = attention(query, key, value, mask=mask, 
                                     dropout=self.dropout)
             
-        # 3) "Concat" using a view and apply a final linear. 
-
-        x = x.transpose(1, 2).contiguous() \
-             .view(nbatches, -1, self.h * self.d_k)
+        if self.h != 1:
+            x = x.transpose(1, 2).contiguous() \
+                .view(nbatches, -1, self.h * self.d_k)
+        
         return self.linears[-1](x).squeeze(1)
-    
+
 
 class PositionwiseFeedForward(nn.Module):
     "Implements FFN equation."
@@ -271,10 +288,9 @@ class Generator(nn.Module):
 
     def forward(self, x):
         return self.proj(x).squeeze(-1)
-        # return F.gumbel_softmax(self.proj(x), dim=-1)
     
 def make_classification_model(src_vocab, tgt_vocab, RN=None, N=6, 
-               d_model=512, d_ff=2048, h=8, dropout=0.1, N2=0):
+               d_model=512, d_ff=2048, h=8, dropout=0.1, N2=0, p_name='encoder.layers.0.RN', lambda_=0.5):
     "Helper: Construct a model from hyperparameters."
     c = copy.deepcopy
     attn = MultiHeadedAttention(h, d_model)
@@ -283,13 +299,18 @@ def make_classification_model(src_vocab, tgt_vocab, RN=None, N=6,
     model = EncoderClass(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N-N2,EncoderLayer(d_model, c(attn_w_RN), c(ff), dropout, RN, True), N2),
         tgt_embed=nn.Sequential(Embeddings(d_model, tgt_vocab)), #, c(position)
-        generator=Generator(d_model, tgt_vocab))
+        generator=Generator(d_model, tgt_vocab),
+        lambda_=lambda_)
     
     # This was important from their code. 
     # Initialize parameters with Glorot / fan_avg.
-    for p in model.parameters():
-        if p.dim() > 1:
-            nn.init.xavier_uniform_(p)
+    for name, param in model.named_parameters():
+        # print(name)
+        if param.dim() > 1 and name != p_name:  # Check if parameter is a weight matrix 
+            nn.init.xavier_uniform_(param)
+
+    if N2:
+        print(RN == model.state_dict()[p_name])
     return model
 
 class LabelSmoothing(nn.Module):
@@ -323,9 +344,10 @@ class LossCompute:
         self.criterion = criterion
         self.opt = opt
         
-    def __call__(self, x, y):
+    def __call__(self, x, y, reg_loss=0):
         x = self.generator(x)
-        loss = self.criterion(x, y) # / norm
+        loss = self.criterion(x, y) + reg_loss # / norm
+        print(f'reg_loss: {reg_loss}, loss: {loss}')
         loss.backward()
         if self.opt is not None:
             self.opt.step()
@@ -342,9 +364,12 @@ def run_epoch(data_iter, model, loss_compute, lr=0.000001, RN=None):
     y_true_prob = []
     for i, (src, tgt) in enumerate(data_iter):
 
-        out =  model.forward(src, tgt, None, None) #
+        out, rn_weights =  model.forward(src, tgt, None, None) #
 
-        loss, y = loss_compute(out, tgt)
+        target = torch.argmax(tgt.float(), dim=1)
+        reg_loss = model.regularization_loss(rn_weights) if torch.is_tensor(rn_weights) else 0
+        print(f'reg: {model.lambda_} reg loss: {reg_loss}')
+        loss, y = loss_compute(out, target, reg_loss)
         y = F.softmax(y, dim=-1)
         y_p = torch.argmax(y, dim=1)
         y_pred.append(y_p)
@@ -353,32 +378,54 @@ def run_epoch(data_iter, model, loss_compute, lr=0.000001, RN=None):
         y_true.append(trg_y)
         y_true_prob.append(tgt)
         total_loss += loss
+        # model.update_reference(rn_weights)
 
     return total_loss, y_pred_prob, y_true_prob
 
 
 def run_model(model,RN,n_epoch,batch_size,train_dataset,valid_dataset, lr=0.000001, rn=True):
     criterion = nn.CrossEntropyLoss()
+    # criterion = nn.KLDivLoss(reduction='batchmean')
     model_opt = NoamOpt(model.tgt_embed[0].d_model, 1, 2000,
                 torch.optim.Adam(model.parameters(), lr=lr, betas=(0.9, 0.98), eps=1e-9))
     BATCH_SIZE = batch_size
     train_loader = DataLoader(train_dataset, BATCH_SIZE, drop_last=True, shuffle=True)
     valid_loader = DataLoader(valid_dataset, BATCH_SIZE, drop_last=True, shuffle=False)
-    for epoch in range(n_epoch):
-        model.train()
-        #  rebatch(pad_idx, b) for b in train_iter)
-        loss, y_pred, y_true = run_epoch( train_loader, 
-                    model, 
-                    LossCompute(model.generator, criterion, 
-                                        opt=model_opt), lr, RN)
+    best_train_loss, best_valid_loss = float('inf'), float('inf')
+    epoch, cnt = 0, 0
+    train_loss = 0
+    while epoch < n_epoch and cnt < 10:
+
+        if train_loss <= best_train_loss:
+            model.train()
+            train_loss, y_pred, y_true = run_epoch( train_loader,
+                        model, 
+                        LossCompute(model.generator, criterion, 
+                                            opt=model_opt), lr, RN)
+            
+            best_train_loss = train_loss
+            
+            epoch += 1
+            cnt = 0
+        else:
+            cnt += 1
+
+        print(f"Epoch {epoch}, cnt: {cnt}")
+
+        # eval
         model.eval()
 
-        loss, y_pred_eval, y_true_eval  = run_epoch( valid_loader, 
+        valid_loss, y_pred_eval, y_true_eval  = run_epoch( valid_loader, 
                             model, 
                             LossCompute(model.generator, criterion, 
                             opt=None), lr, RN)
+
+        if valid_loss <= best_valid_loss:
+            y_pred_return, y_true_return = y_pred_eval, y_true_eval
+            best_valid_loss = valid_loss
+
         
-        if epoch % 10 == 0:
-            print(f"Epoch {epoch}, Valid average Loss: {loss}" )
+        # if epoch % 1 == 0:
+            print(f"Epoch {epoch}, Train average Loss: {train_loss}, Valid average Loss: {valid_loss}" )
         
-    return y_pred_eval, y_true_eval
+    return y_pred_return, y_true_return
