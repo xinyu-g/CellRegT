@@ -1,0 +1,21 @@
+name: CellRegT
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+  - nvidia
+dependencies:
+  - python<3.13
+  - pip
+  - pytorch
+  - torchvision
+  - torchaudio
+  - cudatoolkit
+  - pip:
+      - numpy<=1.26.2
+      - pandas
+      - tqdm
+      - requests
+      - scikit-learn
+      - PyYAML
+prefix: $HOME/miniconda3/envs/CellRegT

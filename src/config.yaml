@@ -1,0 +1,51 @@
+# Paths
+LMMPaths:
+  # train set
+  input_scRNAseq_train: "../data/example_data.csv"
+  input_scRNAseq_test: "../data/example_data.csv"
+  output_rn_file: "../data/example_rn.csv"
+  output_ranked_genes_file: "../data/ranked_genes.json"
+  output_expression_train: "../data/expression_w_ranked_genes.csv"
+  output_expression_test: "../data/expression_w_ranked_genes.csv"
+  cluster_map_output: "../data/cluster_map.json"
+  model_output: "../data/model/LMM_model.pth"
+  db_path: "../data/CollecTRI.csv"
+
+TransformerPaths:
+  model_output: "../data/model/CellRegT_model.pth"
+
+# Training parameters
+training:
+  epochs: 500
+  batch_size: 200
+  model_lr: 0.00001  
+
+# Dataset
+dataset:
+  name: ""  # Placeholder for dataset name, e.g., "smartSeq_Mouse"
+  label_col: "cluster"
+  device: "cpu"  
+  
+# Model
+LMMmodel:
+  supervised: 1
+  latent_dim: 128
+  num_random_effects: 10
+
+
+TransformerModel:
+  supervised: 1
+  latent_dim: 512
+  num_layers: 1
+  
+
+# Data Processing
+data_processing:
+  top_features_to_save: 10000  # Top N features to save in output CSV
+  top_k: 500
+  get_RN: 1
+
+
+inference:
+  inference_output: "../data/inference.pt"
+  inference_output_norm: "../data/inference_normalized.pt"
