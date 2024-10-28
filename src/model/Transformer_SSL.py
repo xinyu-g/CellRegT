@@ -1,3 +1,8 @@
+# Some layers are adapted from Harvard NLP's "Annotated Transformer" repository
+# Original source: https://github.com/harvardnlp/annotated-transformer
+# License: MIT License
+
+
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
